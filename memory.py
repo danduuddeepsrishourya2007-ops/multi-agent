@@ -2,6 +2,7 @@ import faiss
 import numpy as np
 import time
 import os
+import json
 from sentence_transformers import SentenceTransformer
 from supabase import create_client
 
@@ -26,7 +27,7 @@ def store_memory(task: str, summary: str):
     supabase.table("memories").insert({
         "task": task,
         "summary": summary,
-        "embedding": vec.tolist(),
+        "embedding": json.dumps(vec.tolist()),
         "timestamp": time.time()
     }).execute()
     print(f"[Memory] Stored: '{task}'")
@@ -55,7 +56,7 @@ def load():
         print("[Memory] No memories in Supabase")
         return
     for row in rows:
-        vec = np.array(row["embedding"], dtype="float32")
+        vec = np.array(json.loads(row["embedding"]), dtype="float32")
         index.add(vec.reshape(1, -1))
         store.append({"task": row["task"], "summary": row["summary"], "timestamp": row["timestamp"]})
     print(f"[Memory] Loaded {len(rows)} memories from Supabase")
