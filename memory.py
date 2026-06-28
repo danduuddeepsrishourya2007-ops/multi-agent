@@ -15,6 +15,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 index = faiss.IndexFlatIP(DIM)
 store = []
+_loaded = False
 
 def _embed(text: str) -> np.ndarray:
     vec = model.encode([text], normalize_embeddings=True)
@@ -49,14 +50,18 @@ def list_all() -> list:
     return store
 
 def load():
-    global index
+    global index, _loaded
+    if _loaded:
+        return
     res = supabase.table("memories").select("*").execute()
     rows = res.data
     if not rows:
         print("[Memory] No memories in Supabase")
+        _loaded = True
         return
     for row in rows:
         vec = np.array(json.loads(row["embedding"]), dtype="float32")
         index.add(vec.reshape(1, -1))
         store.append({"task": row["task"], "summary": row["summary"], "timestamp": row["timestamp"]})
     print(f"[Memory] Loaded {len(rows)} memories from Supabase")
+    _loaded = True
