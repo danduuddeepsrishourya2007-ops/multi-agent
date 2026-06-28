@@ -1,18 +1,19 @@
 import faiss
 import numpy as np
-import pickle
-import os
 import time
+import os
 from sentence_transformers import SentenceTransformer
+from supabase import create_client
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
 DIM = 384
 
+SUPABASE_URL = os.environ["SUPABASE_URL"]
+SUPABASE_KEY = os.environ["SUPABASE_KEY"]
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 index = faiss.IndexFlatIP(DIM)
 store = []
-
-INDEX_PATH = "memory_index.faiss"
-STORE_PATH = "memory_store.pkl"
 
 def _embed(text: str) -> np.ndarray:
     vec = model.encode([text], normalize_embeddings=True)
@@ -21,13 +22,14 @@ def _embed(text: str) -> np.ndarray:
 def store_memory(task: str, summary: str):
     vec = _embed(task)
     index.add(vec.reshape(1, -1))
-    store.append({
+    store.append({"task": task, "summary": summary, "timestamp": time.time()})
+    supabase.table("memories").insert({
         "task": task,
         "summary": summary,
+        "embedding": vec.tolist(),
         "timestamp": time.time()
-    })
-    _save()
-    print(f"\n[Memory] Stored: '{task}'")
+    }).execute()
+    print(f"[Memory] Stored: '{task}'")
 
 def retrieve_memory(task: str, threshold: float = 0.75) -> str | None:
     if index.ntotal == 0:
@@ -35,25 +37,25 @@ def retrieve_memory(task: str, threshold: float = 0.75) -> str | None:
     vec = _embed(task)
     D, I = index.search(vec.reshape(1, -1), k=1)
     score = D[0][0]
-    print(f"\n[Memory] Search score: {score:.3f}")
+    print(f"[Memory] Search score: {score:.3f}")
     if score >= threshold:
         match = store[I[0][0]]
-        print(f"[Memory] Found relevant memory: '{match['task']}'")
+        print(f"[Memory] Found: '{match['task']}'")
         return match["summary"]
     return None
 
 def list_all() -> list:
     return store
 
-def _save():
-    faiss.write_index(index, INDEX_PATH)
-    with open(STORE_PATH, "wb") as f:
-        pickle.dump(store, f)
-
 def load():
     global index
-    if os.path.exists(INDEX_PATH) and os.path.exists(STORE_PATH):
-        index = faiss.read_index(INDEX_PATH)
-        with open(STORE_PATH, "rb") as f:
-            store.extend(pickle.load(f))
-        print(f"[Memory] Loaded {index.ntotal} memories from disk")
+    res = supabase.table("memories").select("*").execute()
+    rows = res.data
+    if not rows:
+        print("[Memory] No memories in Supabase")
+        return
+    for row in rows:
+        vec = np.array(row["embedding"], dtype="float32")
+        index.add(vec.reshape(1, -1))
+        store.append({"task": row["task"], "summary": row["summary"], "timestamp": row["timestamp"]})
+    print(f"[Memory] Loaded {len(rows)} memories from Supabase")
