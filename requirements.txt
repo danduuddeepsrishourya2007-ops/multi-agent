@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+sentence-transformers
+faiss-cpu
+python-dotenv
+requests
+ddgs
+pytest
+httpx
